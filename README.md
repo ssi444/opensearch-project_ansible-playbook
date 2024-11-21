@@ -1,7 +1,16 @@
 <img src="https://opensearch.org/assets/brand/SVG/Logo/opensearch_logo_default.svg" height="64px"/>
 
-- [OpenSearch Project Ansible-Playbook](#helm-charts)
-- [OpenSearch Installation with Dashboards](opensearch-installation-with-dashboards)
+- [OpenSearch Project Ansible-Playbook](#opensearch-project-ansible-playbook)
+- [Version and Branching](#version-and-branching)
+- [OpenSearch Installation with Dashboards](#opensearch-installation-with-dashboards)
+  - [Prerequisite](#prerequisite)
+  - [Configure](#configure)
+    - [Multi-node Installation](#multi-node-installation)
+    - [Single Node Installation](#single-node-installation)
+  - [Install](#install)
+  - [OpenID authentification](#openid-authentification)
+  - [Custom configuration files](#custom-configuration-files)
+  - [IaC (Infrastructure-as-Code)](#iac-infrastructure-as-code)
 - [Contributing](#contributing)
 - [Getting Help](#getting-help)
 - [Code of Conduct](#code-of-conduct)
@@ -13,6 +22,16 @@
 
 A community repository for Ansible Playbook of OpenSearch Project.
 
+## Version and Branching
+As of now, this ansible-playbook repository maintains 2 branches:
+* _main_ (Version is 2.x.x for both `os_version` and `os_dashboards_version` in `inventories/opensearch/group_vars/all/all.yml`)
+* _1.x_ (Version is 1.x.x for both `os_version` and `os_dashboards_version` in `inventories/opensearch/group_vars/all/all.yml`)
+<br>
+
+Contributors should choose the corresponding branch(es) when commiting their change(s):
+* If you have a change for a specific version, only open PR to specific branch
+* If you have a change for all available versions, first open a PR on `main`, then open a backport PR with `[backport 1.x]` in the title, with label `backport 1.x`, etc.
+
 ## OpenSearch Installation with Dashboards
 
 This ansible playbook supports the following,
@@ -23,6 +42,8 @@ This ansible playbook supports the following,
 - Configure TLS/SSL for OpenSearch transport layer(Nodes to Nodes communication) and REST API layer
 - Generate self-signed certificates to configure TLS/SSL for opensearch
 - Configure the Internal Users Database with limited users and user-defined passwords
+- Configuration of authentication and authorization via OpenID
+- Overriding default settings with your own
 - Install and configure the Apache2.0 opensource OpenSearch Dashboards
 
 ### Prerequisite
@@ -83,16 +104,58 @@ cluster_type: single-node
 
 
     # Deploy with ansible playbook - run the playbook as root
-    ansible-playbook -i inventories/opensearch/hosts opensearch.yml --extra-vars "admin_password=Test@123 kibanaserver_password=Test@6789"
+    ansible-playbook -i inventories/opensearch/hosts opensearch.yml --extra-vars "admin_password=myStrongPassword@123! kibanaserver_password=Test@6789 logstash_password=Test@456"
 
-You should set the reserved users(`admin` and `kibanaserver`) password using `admin_password` and `kibanaserver_password` variables.
+You should set the reserved users(`admin`, `kibanaserver`, and `logstash`) password using `admin_password`, `kibanaserver_password`, and `logstash_password` variables.
+
+**Note**: Starting OpenSearch 2.12, a strong password is required for `admin` user, i.e. `myStrongPassword123!`. The cluster will fail to start with a weak password (i.e. admin) or no password.
+
+If you define your own internal users (in addition to the reserved `admin`, `kibanaserver`, and `logstash`) in custom configuration
+files, then passwords to them should be set via variables on the principle of `<username>_password`
 
 It will install and configure the opensearch. Once the deployment completed, you can access the opensearch Dashboards with user `admin` and password which you provided for variable `admin_password`.
 
     # Deploy with ansible playbook - run the playbook as non-root user which have sudo privileges,
-    ansible-playbook -i inventories/opensearch/hosts opensearch.yml --extra-vars "admin_password=Test@123 kibanaserver_password=Test@6789" --become
+    ansible-playbook -i inventories/opensearch/hosts opensearch.yml --extra-vars "admin_password=myStrongPassword@123! kibanaserver_password=Test@6789 logstash_password=Test@456" --become
 
 **Note**: Change the user details in `ansible_user` parameter in `inventories/opensearch/hosts`  inventory file.
+
+### OpenID authentification
+To enable authentication via OpenID, you need to change the `auth_type` variable in the inventory file 
+`inventories/opensearch/group_vars/all/all.yml` by setting the value `oidc` and prescribe the necessary settings 
+in the `oidc:` block.
+
+### Custom configuration files
+
+To override the default settings files, you need to put your settings in the `files` directory. The files should be 
+named exactly the same as the original ones (internal_users.yml, roles.yml, tenants.yml, etc.)
+
+Especially note the file `files/internal_users.yml`. If it exists and the `copy_custom_security_configs: true` setting is enabled, 
+then only in this case the task of setting passwords for internal users from variables is started. If the file `internal_users.yml` 
+is not located in the `files` directory, but, for example, in one of its subdirectories, then playbook will not work correctly
+
+### IaC (Infrastructure-as-Code)
+
+If you want to use the role not only for the initial deployment of the cluster, but also for further management of it, 
+then set the `iac_enable` parameter to `true`. 
+
+By default, if the /tmp/opensearch-nodecerts directory with certificates exists on the server from which the playbook 
+is launched, it is assumed that the configuration has not changed and some settings are not copied to the target servers.
+
+Conversely, if the /tmp/opensearch-nodecerts directory does not exist on the server from which the playbook is launched, 
+then new certificates and settings are generated and they are copied to the target servers.
+
+If you use this repository not only for the initial deployment of the cluster, but also for its automatic configuration 
+via CI/CD, then new certificates will be generated every time the pipeline is launched, overwriting existing ones, which 
+is not always necessary if the cluster is already in production.
+
+When iac_enable enabling, and all the cluster servers have all the necessary certificates, they will not be copied again. 
+If at least on one server (for example, when adding a new server to the cluster) if there is not at least one certificate 
+from the list, then all certificates on all cluster servers will be updated
+
+Also, if the option is enabled, the settings files will be updated with each execution (previously, the settings were 
+updated only if the /tmp/opensearch-nodecerts directory was missing on the server from which the playbook was launched 
+and new certificates were generated)
 
 ## Contributing
 
